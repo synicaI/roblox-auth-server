@@ -1,37 +1,49 @@
-const express = require("express")
-const app = express()
+import express from "express"
+import fs from "fs"
 
+const app = express()
 app.use(express.json())
 
-const keys = {
-  "test": {
-    expires: Math.floor(Date.now() / 1000) + 86400 * 30,
-    hwid: null
-  }
-}
+const loadDB = () =>
+  JSON.parse(fs.readFileSync("./keys.json", "utf8"))
+
+const saveDB = (db) =>
+  fs.writeFileSync("./keys.json", JSON.stringify(db, null, 2))
 
 app.post("/verify", (req, res) => {
-  const { key, hwid } = req.body
+    const { key, hwid } = req.body
+    const db = loadDB()
 
-  if (!key || !hwid)
-    return res.json({ valid: false })
+    if (!db[key]) {
+        return res.json({ success: false, reason: "Invalid key" })
+    }
 
-  const entry = keys[key]
-  if (!entry)
-    return res.json({ valid: false })
+    const keyData = db[key]
 
-  if (Math.floor(Date.now() / 1000) > entry.expires)
-    return res.json({ valid: false })
+    // ⏰ expiration check
+    const today = new Date()
+    const expires = new Date(keyData.expires)
 
-  if (entry.hwid && entry.hwid !== hwid)
-    return res.json({ valid: false })
+    if (today > expires) {
+        return res.json({ success: false, reason: "Key expired" })
+    }
 
-  if (!entry.hwid)
-    entry.hwid = hwid
+    // 🔒 HWID lock
+    if (!keyData.hwid) {
+        keyData.hwid = hwid
+        saveDB(db)
+    }
 
-  res.json({ valid: true })
+    if (keyData.hwid !== hwid) {
+        return res.json({ success: false, reason: "HWID mismatch" })
+    }
+
+    res.json({
+        success: true,
+        expires: keyData.expires
+    })
 })
 
-app.get("/", (_, res) => res.send("Auth server running"))
-
-app.listen(process.env.PORT || 3000)
+app.listen(process.env.PORT || 3000, () =>
+  console.log("Key system online")
+)
